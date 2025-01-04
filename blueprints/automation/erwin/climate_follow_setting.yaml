@@ -13,7 +13,7 @@ blueprint:
       name: Temperature number entity
       selector:
         entity:
-          domain: input_number
+          device_class: temperature
     reset_time:
       name: Reset time in minutes
       description: Reset to follow mode after manual override.
