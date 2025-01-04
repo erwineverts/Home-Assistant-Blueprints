@@ -1,0 +1,103 @@
+blueprint:
+  name: Climate Follow Setting
+  description: Let a climate entity follow the settings of tempature number, allowing an override for a set time.
+  domain: automation
+  author: Erwin Everts
+  input:
+    climate_entity:
+      name: Climate entity
+      selector:
+        entity:
+          domain: climate
+    temperature_number_entity:
+      name: Temperature number entity
+      selector:
+        entity:
+          domain: input_number
+    reset_time:
+      name: Reset time in minutes
+      description: Reset to follow mode after manual override.
+      default: 02:00:00
+      selector:
+        duration:
+    reset_timer:
+      name: Reset timer
+      description: Timer to use for the reset timeout.
+      selector:
+        entity:
+          filter:
+            domain:
+              - timer
+mode: queued
+max: 3
+
+variables:
+  temperature_wanted: !input temperature_number_entity
+
+triggers:
+  - entity_id: !input temperature_number_entity
+    to: null
+    id: desired_changed
+    trigger: state
+  - entity_id: !input climate_entity
+    attribute: temperature
+    id: actual_changed
+    trigger: state
+  - trigger: state
+    entity_id: !input reset_timer
+    to: idle
+    id: reset_timer
+
+conditions:
+  - condition: or
+    conditions:
+      - condition: and
+        conditions:
+          - condition: trigger
+            id:
+              - desired_changed
+          - condition: not
+            conditions:
+              - condition: state
+                entity_id: !input reset_timer
+                state: active
+      - condition: trigger
+        id:
+          - actual_changed
+          - reset_timer
+
+actions:
+  - choose:
+      - conditions:
+          - condition: trigger
+            id: desired_changed
+        sequence:
+          - service: climate.set_temperature
+            target:
+              entity_id: !input climate_entity
+            data:
+              temperature: "{{ states[temperature_wanted].state | float }}"
+      - conditions:
+          - condition: trigger
+            id: actual_changed
+        sequence:
+          - if: "{{ states[temperature_wanted].state | float != state_attr(trigger.entity_id, 'temperature') | float }}"
+            then:
+              - service: timer.start
+                target:
+                  entity_id: !input reset_timer
+                data: 
+                  duration: !input reset_time
+            else:
+              - service: timer.cancel
+                target:
+                  entity_id: !input reset_timer
+      - conditions:
+          - condition: trigger
+            id: reset_timer
+        sequence:
+          - service: climate.set_temperature
+            target:
+              entity_id: !input climate_entity
+            data:
+              temperature: "{{ states[temperature_wanted].state | float }}"
