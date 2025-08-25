@@ -1,6 +1,6 @@
 blueprint:
   name: Climate Follow Setting
-  description: Let a climate entity follow the settings of tempature number, allowing an override for a set time.
+  description: Let a climate entity follow the settings of temperature number, allowing an override for a set time.
   domain: automation
   author: Erwin Everts
   input:
