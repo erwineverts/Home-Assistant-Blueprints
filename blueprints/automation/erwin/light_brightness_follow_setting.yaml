@@ -17,6 +17,7 @@ blueprint:
           domain: 
             - input_number
             - number
+            - sensor
     reset_time:
       name: Reset time in minutes
       description: Reset to follow mode after manual override.
