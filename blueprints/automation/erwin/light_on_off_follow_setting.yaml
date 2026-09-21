@@ -57,6 +57,8 @@ triggers:
     id: reset_timer
 
 conditions:
+  - condition: template
+    value_template: "{{ has_value(desired) }}"
   - condition: or
     conditions:
       - condition: and

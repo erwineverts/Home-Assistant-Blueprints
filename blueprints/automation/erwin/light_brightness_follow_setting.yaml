@@ -64,6 +64,8 @@ triggers:
     id: reset_timer
 
 conditions:
+  - condition: template
+    value_template: "{{ has_value(brightness_wanted) }}"
   - condition: or
     conditions:
       - condition: and
@@ -109,7 +111,7 @@ actions:
           - if: >
               {% set wanted_brightness = (states[brightness_wanted].state | float * 2.55) | round(0) | int %}
               {% set current_brightness = state_attr(trigger.entity_id, 'brightness') | int(0) %}
-              {{ wanted_brightness != current_brightness }}
+              {{ (wanted_brightness - current_brightness) | abs > 1 }}
             then:
               - service: timer.start
                 target:
