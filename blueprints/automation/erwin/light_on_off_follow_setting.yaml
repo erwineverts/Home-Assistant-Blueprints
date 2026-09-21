@@ -1,0 +1,126 @@
+blueprint:
+  name: Light On/Off Follow Setting
+  description: Let a light or switch entity follow the on/off state of a boolean entity, allowing an override for a set time.
+  domain: automation
+  author: Erwin Everts
+  input:
+    light_entity:
+      name: Light or switch entity
+      selector:
+        entity:
+          domain:
+            - light
+            - switch
+    desired_state_entity:
+      name: Desired state entity
+      description: Boolean entity that determines whether the light should be on.
+      selector:
+        entity:
+          domain:
+            - binary_sensor
+            - input_boolean
+    reset_time:
+      name: Reset time in minutes
+      description: Reset to follow mode after manual override.
+      default: 02:00:00
+      selector:
+        duration:
+    reset_timer:
+      name: Reset timer
+      description: Timer to use for the reset timeout.
+      selector:
+        entity:
+          filter:
+            domain:
+              - timer
+mode: queued
+max: 3
+
+variables:
+  desired: !input desired_state_entity
+  light: !input light_entity
+
+triggers:
+  - entity_id: !input desired_state_entity
+    to: null
+    id: desired_changed
+    trigger: state
+  - entity_id: !input light_entity
+    to:
+      - "on"
+      - "off"
+    id: actual_changed
+    trigger: state
+  - trigger: state
+    entity_id: !input reset_timer
+    to: idle
+    id: reset_timer
+
+conditions:
+  - condition: or
+    conditions:
+      - condition: and
+        conditions:
+          - condition: trigger
+            id:
+              - desired_changed
+          - condition: not
+            conditions:
+              - condition: state
+                entity_id: !input reset_timer
+                state: active
+      - condition: trigger
+        id:
+          - actual_changed
+          - reset_timer
+
+actions:
+  - choose:
+      - conditions:
+          - condition: trigger
+            id: desired_changed
+        sequence:
+          - choose:
+              - conditions:
+                  - condition: template
+                    value_template: "{{ states[desired].state == 'on' }}"
+                sequence:
+                  - service: homeassistant.turn_on
+                    target:
+                      entity_id: !input light_entity
+            default:
+              - service: homeassistant.turn_off
+                target:
+                  entity_id: !input light_entity
+      - conditions:
+          - condition: trigger
+            id: actual_changed
+        sequence:
+          - if: >
+              {{ states[desired].state != states[light].state }}
+            then:
+              - service: timer.start
+                target:
+                  entity_id: !input reset_timer
+                data:
+                  duration: !input reset_time
+            else:
+              - service: timer.cancel
+                target:
+                  entity_id: !input reset_timer
+      - conditions:
+          - condition: trigger
+            id: reset_timer
+        sequence:
+          - choose:
+              - conditions:
+                  - condition: template
+                    value_template: "{{ states[desired].state == 'on' }}"
+                sequence:
+                  - service: homeassistant.turn_on
+                    target:
+                      entity_id: !input light_entity
+            default:
+              - service: homeassistant.turn_off
+                target:
+                  entity_id: !input light_entity
