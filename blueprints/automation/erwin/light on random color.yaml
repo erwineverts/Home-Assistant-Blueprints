@@ -1,103 +1,133 @@
 blueprint:
-  name: Random color when light becomes available
+  name: Switch controls main or secondary light by time
   description: >
-    When the selected light changes from "unavailable" to available (for example
-    after the power is restored or a smart bulb reconnects), it slowly
-    transitions to a randomly chosen color at the brightness you set.
-  domain: automation
+    A switch toggles your lights. When the switch is turned on, the main light
+    comes on during the day, and the secondary light (e.g. a night light) comes
+    on instead during the configured time window. Turning the switch off turns
+    both lights off. If the time window starts or ends while the switch is
+    already on, the lights crossfade to the new configuration (the fade is
+    applied by lights that support transitions; others simply switch).
+  domain: automation	
   author: Erwin Everts
   homeassistant:
     min_version: 2024.10.0
   input:
-    light_entity:
-      name: Light
-      description: The light that should change color when it becomes available.
+    control_switch:
+      name: Switch
+      description: The switch that controls the lights.
       selector:
         entity:
-          filter:
-            - domain: light
-    brightness:
-      name: Brightness
-      description: Brightness to transition to (in percent).
-      default: 50
+          domain: switch
+    main_light:
+      name: Main light
+      description: Used when the switch is on outside the secondary time window.
       selector:
-        number:
-          min: 1
-          max: 100
-          step: 1
-          unit_of_measurement: "%"
-          mode: slider
+        entity:
+          domain: light
+    secondary_light:
+      name: Secondary light
+      description: Used when the switch is on inside the secondary time window.
+      selector:
+        entity:
+          domain: light
+    secondary_start:
+      name: Secondary light starts at
+      description: From this time onwards the secondary light is used.
+      default: "22:00:00"
+      selector:
+        time:
+    secondary_end:
+      name: Secondary light ends at
+      description: From this time onwards the main light is used again.
+      default: "06:00:00"
+      selector:
+        time:
     transition:
-      name: Transition time
-      description: How long the fade to the new color and brightness takes (in seconds).
-      default: 30
-      selector:
-        number:
-          min: 1
-          max: 600
-          step: 1
-          unit_of_measurement: s
-          mode: box
-    min_saturation:
-      name: Minimum saturation
+      name: Fade duration (seconds)
       description: >
-        Lowest saturation for the random color. Raise it to avoid washed-out,
-        pastel-looking colors.
-      default: 60
+        Crossfade duration when the time window changes while the switch is on.
+        Set to 0 to disable. Lights that don't support transitions ignore it.
+      default: 10
       selector:
         number:
           min: 0
-          max: 100
+          max: 300
           step: 1
-          unit_of_measurement: "%"
+          unit_of_measurement: s
           mode: slider
-    startup_delay:
-      name: Startup delay
-      description: >
-        Seconds to wait after the light becomes available before sending the
-        command. Helps with bulbs (e.g. Zigbee/Wi-Fi) that need a moment to be
-        ready.
-      default: 3
-      selector:
-        number:
-          min: 0
-          max: 60
-          step: 1
-          unit_of_measurement: s
-          mode: box
 
 mode: restart
-max_exceeded: silent
 
 variables:
-  light_entity: !input light_entity
-  brightness: !input brightness
-  transition: !input transition
-  min_saturation: !input min_saturation
+  fade_seconds: !input transition
 
-triggers:
-  - trigger: state
-    entity_id: !input light_entity
-    from: "unavailable"
+trigger:
+  - platform: state
+    entity_id: !input control_switch
+    to: "on"
+    id: switch_on
+  - platform: state
+    entity_id: !input control_switch
+    to: "off"
+    id: switch_off
+  - platform: time
+    at: !input secondary_start
+    id: time_change
+  - platform: time
+    at: !input secondary_end
+    id: time_change
 
-conditions:
-  - condition: not
-    conditions:
-      - condition: state
-        entity_id: !input light_entity
-        state:
-          - "unavailable"
-          - "unknown"
-
-actions:
-  - delay:
-      seconds: !input startup_delay
-  - action: light.turn_on
-    target:
-      entity_id: !input light_entity
-    data:
-      hs_color:
-        - "{{ range(0, 360) | random }}"
-        - "{{ range(min_saturation | int, 101) | random }}"
-      brightness_pct: !input brightness
-      transition: !input transition
+action:
+  - choose:
+      # Switch on, or the time window changed while the switch is on
+      - conditions:
+          - condition: trigger
+            id:
+              - switch_on
+              - time_change
+          - condition: state
+            entity_id: !input control_switch
+            state: "on"
+        sequence:
+          - variables:
+              # No fade when the switch itself was just turned on
+              fade: "{{ 0 if trigger.id == 'switch_on' else fade_seconds }}"
+          - choose:
+              # Inside the secondary time window -> secondary light
+              - conditions:
+                  - condition: time
+                    after: !input secondary_start
+                    before: !input secondary_end
+                sequence:
+                  - service: light.turn_on
+                    target:
+                      entity_id: !input secondary_light
+                    data:
+                      transition: "{{ fade }}"
+                  - service: light.turn_off
+                    target:
+                      entity_id: !input main_light
+                    data:
+                      transition: "{{ fade }}"
+            # Otherwise -> main light
+            default:
+              - service: light.turn_on
+                target:
+                  entity_id: !input main_light
+                data:
+                  transition: "{{ fade }}"
+              - service: light.turn_off
+                target:
+                  entity_id: !input secondary_light
+                data:
+                  transition: "{{ fade }}"
+      # Switch turned off -> everything off
+      - conditions:
+          - condition: trigger
+            id: switch_off
+        sequence:
+          - service: light.turn_off
+            target:
+              entity_id:
+                - !input main_light
+                - !input secondary_light
