@@ -4,11 +4,13 @@ blueprint:
     A switch toggles your lights. When the switch is turned on, the main light
     comes on during the day, and the secondary light (e.g. a night light) comes
     on instead during the configured time window. Turning the switch off turns
-    both lights off.
-  domain: automation
+    both lights off. If the time window starts or ends while the switch is
+    already on, the lights crossfade to the new configuration (the fade is
+    applied by lights that support transitions; others simply switch).
+  domain: automation	
   author: Erwin Everts
   homeassistant:
-    min_version: 2026.10.0
+    min_version: 2024.10.0
   input:
     control_switch:
       name: Switch
@@ -18,13 +20,13 @@ blueprint:
           domain: switch
     main_light:
       name: Main light
-      description: Turned on when the switch is on outside the secondary time window.
+      description: Used when the switch is on outside the secondary time window.
       selector:
         entity:
           domain: light
     secondary_light:
       name: Secondary light
-      description: Turned on when the switch is on inside the secondary time window.
+      description: Used when the switch is on inside the secondary time window.
       selector:
         entity:
           domain: light
@@ -40,8 +42,24 @@ blueprint:
       default: "06:00:00"
       selector:
         time:
+    transition:
+      name: Fade duration (seconds)
+      description: >
+        Crossfade duration when the time window changes while the switch is on.
+        Set to 0 to disable. Lights that don't support transitions ignore it.
+      default: 10
+      selector:
+        number:
+          min: 0
+          max: 300
+          step: 1
+          unit_of_measurement: s
+          mode: slider
 
 mode: restart
+
+variables:
+  fade_seconds: !input transition
 
 trigger:
   - platform: state
@@ -52,14 +70,28 @@ trigger:
     entity_id: !input control_switch
     to: "off"
     id: switch_off
+  - platform: time
+    at: !input secondary_start
+    id: time_change
+  - platform: time
+    at: !input secondary_end
+    id: time_change
 
 action:
   - choose:
-      # Switch turned on
+      # Switch on, or the time window changed while the switch is on
       - conditions:
           - condition: trigger
-            id: switch_on
+            id:
+              - switch_on
+              - time_change
+          - condition: state
+            entity_id: !input control_switch
+            state: "on"
         sequence:
+          - variables:
+              # No fade when the switch itself was just turned on
+              fade: "{{ 0 if trigger.id == 'switch_on' else fade_seconds }}"
           - choose:
               # Inside the secondary time window -> secondary light
               - conditions:
@@ -67,20 +99,28 @@ action:
                     after: !input secondary_start
                     before: !input secondary_end
                 sequence:
-                  - service: light.turn_off
-                    target:
-                      entity_id: !input main_light
                   - service: light.turn_on
                     target:
                       entity_id: !input secondary_light
+                    data:
+                      transition: "{{ fade }}"
+                  - service: light.turn_off
+                    target:
+                      entity_id: !input main_light
+                    data:
+                      transition: "{{ fade }}"
             # Otherwise -> main light
             default:
-              - service: light.turn_off
-                target:
-                  entity_id: !input secondary_light
               - service: light.turn_on
                 target:
                   entity_id: !input main_light
+                data:
+                  transition: "{{ fade }}"
+              - service: light.turn_off
+                target:
+                  entity_id: !input secondary_light
+                data:
+                  transition: "{{ fade }}"
       # Switch turned off -> everything off
       - conditions:
           - condition: trigger
