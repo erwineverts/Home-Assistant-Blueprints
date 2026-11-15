@@ -1,9 +1,10 @@
 blueprint:
-  name: Random color when light becomes available
+  name: Random color when light becomes available or turns on
   description: >
     When the selected light changes from "unavailable" to available (for example
-    after the power is restored or a smart bulb reconnects), it slowly
-    transitions to a randomly chosen color at the brightness you set.
+    after the power is restored or a smart bulb reconnects), or is switched on
+    from the "off" state, it slowly transitions to a randomly chosen color at
+    the brightness you set.
   domain: automation
   author: Erwin Everts
   homeassistant:
@@ -11,7 +12,7 @@ blueprint:
   input:
     light_entity:
       name: Light
-      description: The light that should change color when it becomes available.
+      description: The light that should change color when it becomes available or turns on.
       selector:
         entity:
           filter:
@@ -54,9 +55,9 @@ blueprint:
     startup_delay:
       name: Startup delay
       description: >
-        Seconds to wait after the light becomes available before sending the
-        command. Helps with bulbs (e.g. Zigbee/Wi-Fi) that need a moment to be
-        ready.
+        Seconds to wait after the light becomes available or turns on before
+        sending the command. Helps with bulbs (e.g. Zigbee/Wi-Fi) that need a
+        moment to be ready.
       default: 3
       selector:
         number:
@@ -78,7 +79,9 @@ variables:
 triggers:
   - trigger: state
     entity_id: !input light_entity
-    from: "unavailable"
+    from:
+      - "unavailable"
+      - "off"
 
 conditions:
   - condition: not
@@ -88,6 +91,7 @@ conditions:
         state:
           - "unavailable"
           - "unknown"
+          - "off"
 
 actions:
   - delay:
